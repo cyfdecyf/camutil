@@ -112,6 +112,10 @@ def convert(input_fname, output_fname,
     color_space: specify color space, transfer, primaries with the specified
         value. If given 'none', keep color settings the same as input
     """
+    if input_fname == output_fname:
+        print('error: input and output file name are the same.')
+        sys.exit(1)
+
     if audio_enc not in ('aac', 'libfdk_aac'):
         print(f'invalid audio encoder: {audio_enc}')
         sys.exit(1)
@@ -151,6 +155,8 @@ def convert(input_fname, output_fname,
             '-preset', video_options['preset'],
             # Copy metadata so we can reserve video creation time etc.
             '-map_metadata', 0,
+            # Write custom tags. According to https://superuser.com/a/1208277/87009
+            '-movflags', 'use_metadata_tags',
             # Color related options.
             '-pix_fmt', video_meta['pix_fmt'],
             # For writing color atom. (Show things like HD (1-1-1) in QuickTime Player inspector.)
@@ -198,10 +204,6 @@ def convert(input_fname, output_fname,
     ffmpeg(output_fname,
             _out=sys.stdout, _err=sys.stderr)
 
-    mvdir = path.join(path.dirname(input_fname), 'original')
-    sh.mkdir('-p', mvdir)
-    sh.mv(input_fname, mvdir)
-
 
 def auto_convert(input_fname):
     """
@@ -211,7 +213,14 @@ def auto_convert(input_fname):
         print(f'skip converting {input_fname}')
         return
 
-    out_fname = path.splitext(input_fname)[0] + '.mp4'
+    outdir = path.dirname(input_fname)
+    if outdir == '':
+        outdir = '.'
+    converting_dir = path.join(outdir, 'converting')
+    sh.mkdir('-p', converting_dir)
+    out_basename = path.splitext(path.basename(input_fname))[0] + '.mov'
+    out_fname = path.join(converting_dir, out_basename)
+
     if 'F-Log' in input_fname:
         print(f'convert {input_fname} with lut')
         lut = 'wdr'
@@ -219,6 +228,12 @@ def auto_convert(input_fname):
         print(f'convert {input_fname} without lut')
         lut = None
     convert(input_fname, out_fname, lut=lut)
+
+    original_dir = path.join(path.dirname(input_fname), 'original')
+    sh.mkdir('-p', original_dir)
+    sh.mv(input_fname, original_dir)
+
+    sh.mv('-f', out_fname, outdir)
 
 
 if __name__ == '__main__':
