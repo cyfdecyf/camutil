@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import multiprocessing
 from os import path
 import sys
 import json
@@ -47,6 +48,7 @@ FRAMERATE_MAPPING = {
     '60000/1001': 60,
 }
 
+
 def probe(input_fname):
     try:
         probe = sh.ffprobe(
@@ -76,7 +78,7 @@ def probe(input_fname):
     # is not important.
     for k in common_meta + ['avg_frame_rate', 'pix_fmt',
             'color_range', 'color_space', 'color_transfer', 'color_primaries',
-        'chroma_location']:
+            'chroma_location']:
         vmeta[k] = video_meta.get(k, None)
     metadata['video'] = vmeta
 
@@ -101,7 +103,8 @@ def probe(input_fname):
 def convert(input_fname, output_fname,
         duration=None,
         audio_enc='aac', vbr=0, bit_rate='256k',
-        video_enc='libx265', color_space='bt709', lut=None):
+        video_enc='libx265', color_space='bt709', lut=None,
+        threads=None):
     """
     lut: LUT to apply: wdr, eterna
     audio_enc: audio encoder: libfdk_aac, aac
@@ -111,6 +114,7 @@ def convert(input_fname, output_fname,
     video_enc: video encoder:  libx265, libx264
     color_space: specify color space, transfer, primaries with the specified
         value. If given 'none', keep color settings the same as input
+    threads: number of threads to use, default is min(4, #cpu_cores)
     """
     if input_fname == output_fname:
         print('error: input and output file name are the same.')
@@ -122,6 +126,9 @@ def convert(input_fname, output_fname,
     if video_enc not in ('libx264', 'libx265'):
         print(f'invalid video encoder: {video_enc}')
         sys.exit(1)
+
+    if threads is None:
+        threads = min(4, multiprocessing.cpu_count())
 
     metadata = probe(input_fname)
 
@@ -142,7 +149,7 @@ def convert(input_fname, output_fname,
         if vbr != 0:
             ffmpeg = ffmpeg.bake('-vbr', vbr)
         else:
-            ffmpeg = ffmpeg.bake('-b:a', bit_rate) 
+            ffmpeg = ffmpeg.bake('-b:a', bit_rate)
 
     # Video options.
     video_options = VIDEO_OPTIONS[video_enc]
@@ -176,7 +183,6 @@ def convert(input_fname, output_fname,
             '-color_trc', color_space,
             '-color_primaries', color_space)
 
-
     if video_enc == 'libx265':
         # For QuickTime Player to know it's able to play this file.
         ffmpeg = ffmpeg.bake('-tag:v', 'hvc1')
@@ -194,15 +200,14 @@ def convert(input_fname, output_fname,
     venc_params = f'keyint={frame_rate * 2}:min-keyint={frame_rate}'
     #venc_params = f'keyint={frame_rate * 2}:min-keyint={frame_rate}:colorprim=bt709:transfer=bt709:colormatrix=bt709'
     if video_enc == 'libx265':
-    # Let ffmpeg to specify profile.
-        #venc_params += ':profile=main'
-        ffmpeg = ffmpeg.bake('-x265-params', venc_params)
+        # Let ffmpeg to specify profile.
+        # venc_params += ':profile=main'
+        ffmpeg = ffmpeg.bake('-x265-params', venc_params + f':pools={threads}')
     elif video_enc == 'libx264':
         ffmpeg = ffmpeg.bake('-x264-params', venc_params)
 
     print(f'{ffmpeg} {output_fname}')
-    ffmpeg(output_fname,
-            _out=sys.stdout, _err=sys.stderr)
+    ffmpeg('-threads', threads, output_fname, _out=sys.stdout, _err=sys.stderr)
 
 
 def auto_convert(input_fname):
