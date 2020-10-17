@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 
-import multiprocessing
-from os import path
-import sys
+import glob
 import json
+import multiprocessing
+import os
+from os import path
+import shutil
+import sys
+from typing import Dict
 
 import argh
 import sh
 
-SCRIPT_DIR = path.abspath(path.dirname(__file__))
+SRC_DIR = path.abspath(path.dirname(__file__))
 
 # Download LUT file from
 # https://www.fujifilm.com/support/digital_cameras/software/lut/
 LUT_FPATH = {
-    'wdr': path.join(SCRIPT_DIR, 'lut/x-t30-wdr.cube'),
-    'eterna': path.join(SCRIPT_DIR, 'lut/x-t30-eterna.cube'),
+    'wdr': path.join(SRC_DIR, 'lut/x-t30-wdr.cube'),
+    'eterna': path.join(SRC_DIR, 'lut/x-t30-eterna.cube'),
 }
 
 VIDEO_OPTIONS = {
@@ -50,16 +54,17 @@ FRAMERATE_MAPPING = {
 
 
 def probe(input_fname):
+    """Use ffprobe to get video file metadata."""
     try:
         probe = sh.ffprobe(
-                '-print_format', 'json',
-                '-show_format', '-show_streams',
-                input_fname)
+            '-print_format', 'json',
+            '-show_format', '-show_streams',
+            input_fname)
     except sh.ErrorReturnCode_1 as e:
         print('error running ffprobe:\n'
-                f'RUN:\n{e.full_cmd}\n\n'
-                f'STDOUT:\n{e.stdout}\n\n'
-                f'STDERR:\n{e.stderr}')
+              f'RUN:\n{e.full_cmd}\n\n'
+              f'STDOUT:\n{e.stdout}\n\n'
+              f'STDERR:\n{e.stderr}')
         sys.exit(1)
 
     probe_meta = json.loads(probe.stdout)
@@ -77,8 +82,8 @@ def probe(input_fname):
     # But X-T3 HEVC output video have chroma_location unspecified, maybe this
     # is not important.
     for k in common_meta + ['avg_frame_rate', 'pix_fmt',
-            'color_range', 'color_space', 'color_transfer', 'color_primaries',
-            'chroma_location']:
+                            'color_range', 'color_space', 'color_transfer', 'color_primaries',
+                            'chroma_location']:
         vmeta[k] = video_meta.get(k, None)
     metadata['video'] = vmeta
 
@@ -98,13 +103,16 @@ def probe(input_fname):
 # About defaulting to bt709 color space:
 # - Fujifilm provided LUT complies to ITU-R BT.709, thus I guess we
 #   should force use the bt709 color space.
+# - Fujifilm X-T30 records MOV file with PAL color space, which has some visible
+#   color defects I've noticed, converting to bt709 makes the color seems more
+#   correct on an sRGB display.
 # - iPhone records 4K video uses bt709 for color space, trc and primaries.  It's
 #   better for me to just follow Apple's settings.
 def convert(input_fname, output_fname,
-        duration=None,
-        audio_enc='aac', vbr=0, bit_rate='256k',
-        video_enc='libx265', color_space='bt709', lut=None,
-        threads=None):
+            duration=None,
+            audio_enc='aac', vbr=0, bit_rate='256k',
+            video_enc='libx265', color_space='bt709', lut=None,
+            threads=None):
     """
     lut: LUT to apply: wdr, eterna
     audio_enc: audio encoder: libfdk_aac, aac
@@ -157,17 +165,17 @@ def convert(input_fname, output_fname,
     video_meta = metadata['video']
 
     ffmpeg = ffmpeg.bake(
-            '-c:v', video_enc,
-            '-crf', video_options['crf'],
-            '-preset', video_options['preset'],
-            # Copy metadata so we can reserve video creation time etc.
-            '-map_metadata', 0,
-            # Write custom tags. According to https://superuser.com/a/1208277/87009
-            '-movflags', 'use_metadata_tags',
-            # Color related options.
-            '-pix_fmt', video_meta['pix_fmt'],
-            # For writing color atom. (Show things like HD (1-1-1) in QuickTime Player inspector.)
-            '-movflags', '+write_colr', '-strict', 'experimental')
+        '-c:v', video_enc,
+        '-crf', video_options['crf'],
+        '-preset', video_options['preset'],
+        # Copy metadata so we can reserve video creation time etc.
+        '-map_metadata', 0,
+        # Write custom tags. According to https://superuser.com/a/1208277/87009
+        '-movflags', 'use_metadata_tags',
+        # Color related options.
+        '-pix_fmt', video_meta['pix_fmt'],
+        # For writing color atom. (Show things like HD (1-1-1) in QuickTime Player inspector.)
+        '-movflags', '+write_colr', '-strict', 'experimental')
     if video_meta['color_range'] is not None:
         ffmpeg = ffmpeg.bake('-color_range', video_meta['color_range'])
 
@@ -188,7 +196,7 @@ def convert(input_fname, output_fname,
         ffmpeg = ffmpeg.bake('-tag:v', 'hvc1')
     if lut:
         ffmpeg = ffmpeg.bake(
-                '-vf', 'lut3d={}'.format(LUT_FPATH[lut]))
+            '-vf', 'lut3d={}'.format(LUT_FPATH[lut]))
 
     frame_rate = FRAMERATE_MAPPING[metadata['video']['avg_frame_rate']]
     # Set keyint is 2x framerate, min-keyint to framerate, as recommended
@@ -241,7 +249,121 @@ def auto_convert(input_fname):
     sh.mv('-f', out_fname, outdir)
 
 
-if __name__ == '__main__':
-    argh.dispatch_commands(
-            [convert, auto_convert, probe])
+def exiftool_read_tag(fname, *tags):
+    """Read tags and return a dict containing tag & values."""
+    cmd = sh.exiftool.bake("-s2", *[f"-{t}" for t in tags])
+    out = cmd(fname)
 
+    r = {}
+    for l in out.stdout.decode('utf-8').splitlines():
+        k, v = l.split(':', 1)
+        r[k] = v
+    return r
+
+
+def _exiftool_time_shift_option(time_shift, *tags):
+    if time_shift[0] == '-':
+        sign = '-'
+        time_shift = time_shift[1:]
+    else:
+        sign = '+'
+
+    opt = [f'-{t}{sign}={time_shift}' for t in tags]
+    return opt
+
+
+def _exiftool_tag_option(tag_values : Dict[str, str]):
+    return [f'-{k}={v}' for k, v in tag_values.items()]
+
+
+def geotag(gpslog: str, fpath: str,
+           video_pattern : str = "DSCF*.mov",
+           tag_file_time_shift=None,
+           time_shift=None):
+    """Geotag for picture and video using [exiftool](https://exiftool.org/).
+
+    exiftool can geotag all jpeg files under a single directory but not for mov (QuickTime) file.
+
+    So for mov files, we copy an empty jpeg file and set it's creation time the same as the move file.
+    Let exiftool do geo-tagging then copy the geotag to mov file.
+
+    Args:
+      gpslog: comma separated GPS log file
+      fpath: either file or a directory, both jpg and video files will add geotag
+      video_pattern: only used when fpath is a directory
+      tag_file_time_shift: shift time (in hour) when generating temporary jpg tag file
+      time_shift: shift time (in hour) when generating the geotagged file
+    """
+    if path.isdir(fpath):
+        flist = glob.glob(path.join(fpath, video_pattern))
+        flist.sort()
+        dstdir = fpath
+    else:
+        flist = [fpath]
+        dstdir = path.dirname(fpath)
+
+    TAG_FILE = path.join(SRC_DIR, "tag.jpg")
+
+    print('generate geotag tmp jpg files for each video file')
+    video2tag = {} # For finding jpg tag file later.
+    for vfile in flist:
+        fname, _ = path.splitext(vfile)
+        dst = f'{fname}_fuji_geotag_tmp.jpg'
+        video2tag[vfile] = dst
+        if path.exists(dst):
+            os.unlink(dst)
+
+        date_tags = ['CreateDate', 'DateTimeOriginal', 'ModifyDate', 'DateCreated']
+        create_date = exiftool_read_tag(vfile, 'CreateDate')
+        date_tag_values = {}
+        for t in date_tags:
+            date_tag_values[t] = create_date
+
+        cmd = sh.exiftool.bake(*_exiftool_tag_option(date_tag_values))
+        # print("    copy create date from video file to jpg geotag file")
+        cmd("-o", dst, TAG_FILE) #, _out=sys.stdout, _err=sys.stderr)
+
+        if tag_file_time_shift:
+            # print("    time shift for jpg geotag file")
+            cmd = sh.exiftool.bake(
+                "-overwrite_original",
+                *_exiftool_time_shift_option(tag_file_time_shift, *date_tags))
+            cmd(dst) #, _out=sys.stdout, _err=sys.stderr)
+        print(f'\t{dst} created')
+
+    # Geotag for all picture files.
+    cmd = sh.exiftool.bake("-overwrite_original")
+    for f in gpslog.split(","):
+        cmd = cmd.bake("-geotag", f)
+    print(f"====== geotag for all jpg files in {dstdir} ======")
+    cmd(*video2tag.values(), _out=sys.stdout, _err=sys.stderr)
+
+    time_shift_option = {}
+    if time_shift:
+        time_shift_option = _exiftool_time_shift_option(
+            time_shift,
+            "DateTimeOriginal", "CreateDate", "ModifyDate",
+            "MediaCreateDate", "MediaModifyDate",
+            "TrackCreateDate", "TrackModifyDate")
+
+    for vfile in flist:
+        geotag_jpg_file = video2tag[vfile]
+        gps_tag_values = exiftool_read_tag(geotag_jpg_file,
+            "GPSCoordinates", "GPSAltitude", "GPSAltitudeRef",
+            "GPSLatitude", "GPSLongitude", "GPSPosition")
+        gps_tag_values["GPSCoordinates"] = f'{gps_tag_values["GPSPosition"]}, {gps_tag_values["GPSAltitude"]}'
+        cmd = sh.exiftool.bake(*_exiftool_tag_option(gps_tag_values))
+        if time_shift:
+            cmd = cmd.bake(*time_shift_option)
+        print(f"geotag for video file {vfile}")
+        cmd(vfile, _out=sys.stdout, _err=sys.stderr)
+
+        os.unlink(geotag_jpg_file)
+
+
+if __name__ == "__main__":
+    argh.dispatch_commands(
+        [convert,
+         auto_convert,
+         probe,
+         geotag])
