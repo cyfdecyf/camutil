@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 
-import glob
 import json
 import multiprocessing
-import os
 from os import path
-import shutil
 import sys
-from typing import Dict
 
 import argh
 import sh
@@ -249,121 +245,9 @@ def auto_convert(input_fname):
     sh.mv('-f', out_fname, outdir)
 
 
-def exiftool_read_tag(fname, *tags):
-    """Read tags and return a dict containing tag & values."""
-    cmd = sh.exiftool.bake("-s2", *[f"-{t}" for t in tags])
-    out = cmd(fname)
-
-    r = {}
-    for l in out.stdout.decode('utf-8').splitlines():
-        k, v = l.split(':', 1)
-        r[k] = v
-    return r
-
-
-def _exiftool_time_shift_option(time_shift, *tags):
-    if time_shift[0] == '-':
-        sign = '-'
-        time_shift = time_shift[1:]
-    else:
-        sign = '+'
-
-    opt = [f'-{t}{sign}={time_shift}' for t in tags]
-    return opt
-
-
-def _exiftool_tag_option(tag_values : Dict[str, str]):
-    return [f'-{k}={v}' for k, v in tag_values.items()]
-
-
-def geotag(gpslog: str, fpath: str,
-           video_pattern : str = "DSCF*.mov",
-           tag_file_time_shift=None,
-           time_shift=None):
-    """Geotag for picture and video using [exiftool](https://exiftool.org/).
-
-    exiftool can geotag all jpeg files under a single directory but not for mov (QuickTime) file.
-
-    So for mov files, we copy an empty jpeg file and set it's creation time the same as the move file.
-    Let exiftool do geo-tagging then copy the geotag to mov file.
-
-    Args:
-      gpslog: comma separated GPS log file
-      fpath: either file or a directory, both jpg and video files will add geotag
-      video_pattern: only used when fpath is a directory
-      tag_file_time_shift: shift time (in hour) when generating temporary jpg tag file
-      time_shift: shift time (in hour) when generating the geotagged file
-    """
-    if path.isdir(fpath):
-        flist = glob.glob(path.join(fpath, video_pattern))
-        flist.sort()
-        dstdir = fpath
-    else:
-        flist = [fpath]
-        dstdir = path.dirname(fpath)
-
-    TAG_FILE = path.join(SRC_DIR, "tag.jpg")
-
-    print('generate geotag tmp jpg files for each video file')
-    video2tag = {} # For finding jpg tag file later.
-    for vfile in flist:
-        fname, _ = path.splitext(vfile)
-        dst = f'{fname}_fuji_geotag_tmp.jpg'
-        video2tag[vfile] = dst
-        if path.exists(dst):
-            os.unlink(dst)
-
-        date_tags = ['CreateDate', 'DateTimeOriginal', 'ModifyDate', 'DateCreated']
-        create_date = exiftool_read_tag(vfile, 'CreateDate')
-        date_tag_values = {}
-        for t in date_tags:
-            date_tag_values[t] = create_date
-
-        cmd = sh.exiftool.bake(*_exiftool_tag_option(date_tag_values))
-        # print("    copy create date from video file to jpg geotag file")
-        cmd("-o", dst, TAG_FILE) #, _out=sys.stdout, _err=sys.stderr)
-
-        if tag_file_time_shift:
-            # print("    time shift for jpg geotag file")
-            cmd = sh.exiftool.bake(
-                "-overwrite_original",
-                *_exiftool_time_shift_option(tag_file_time_shift, *date_tags))
-            cmd(dst) #, _out=sys.stdout, _err=sys.stderr)
-        print(f'\t{dst} created')
-
-    # Geotag for all picture files.
-    cmd = sh.exiftool.bake("-overwrite_original")
-    for f in gpslog.split(","):
-        cmd = cmd.bake("-geotag", f)
-    print(f"====== geotag for all jpg files in {dstdir} ======")
-    cmd(*video2tag.values(), _out=sys.stdout, _err=sys.stderr)
-
-    time_shift_option = {}
-    if time_shift:
-        time_shift_option = _exiftool_time_shift_option(
-            time_shift,
-            "DateTimeOriginal", "CreateDate", "ModifyDate",
-            "MediaCreateDate", "MediaModifyDate",
-            "TrackCreateDate", "TrackModifyDate")
-
-    for vfile in flist:
-        geotag_jpg_file = video2tag[vfile]
-        gps_tag_values = exiftool_read_tag(geotag_jpg_file,
-            "GPSCoordinates", "GPSAltitude", "GPSAltitudeRef",
-            "GPSLatitude", "GPSLongitude", "GPSPosition")
-        gps_tag_values["GPSCoordinates"] = f'{gps_tag_values["GPSPosition"]}, {gps_tag_values["GPSAltitude"]}'
-        cmd = sh.exiftool.bake(*_exiftool_tag_option(gps_tag_values))
-        if time_shift:
-            cmd = cmd.bake(*time_shift_option)
-        print(f"geotag for video file {vfile}")
-        cmd(vfile, _out=sys.stdout, _err=sys.stderr)
-
-        os.unlink(geotag_jpg_file)
-
-
 if __name__ == "__main__":
-    argh.dispatch_commands(
-        [convert,
-         auto_convert,
-         probe,
-         geotag])
+    argh.dispatch_commands([
+        convert,
+        auto_convert,
+        probe,
+    ])
