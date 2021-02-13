@@ -13,6 +13,7 @@ import sh
 
 SRC_DIR = path.abspath(path.dirname(__file__))
 EXIF_DATE_TAGS = ['CreateDate', 'DateTimeOriginal', 'ModifyDate', 'DateCreated']
+#EXIF_DATE_TAGS = ['CreateDate', 'DateTimeOriginal', 'ModifyDate', 'DateCreated', 'IPTC:TimeCreated', 'IPTC:DigitalCreationTime']
 EXIF_VIDEO_DATE_TAGS = EXIF_DATE_TAGS + [
     "MediaCreateDate", "MediaModifyDate", "TrackCreateDate", "TrackModifyDate"]
 
@@ -63,15 +64,30 @@ def shift_time(shift, *fname):
     is different than handling picture files.
     """
     video_opt = _exiftool_time_shift_option(shift, EXIF_VIDEO_DATE_TAGS)
-    pic_opt = _exiftool_time_shift_option(shift, EXIF_VIDEO_DATE_TAGS)
+    pic_opt = _exiftool_time_shift_option(shift, EXIF_DATE_TAGS)
 
-    cmd_pic = sh.exiftool.bake(*video_opt, _out=sys.stdout, _err=sys.stderr)
-    cmd_video = sh.exiftool.bake(*pic_opt, _out=sys.stdout, _err=sys.stderr)
+    cmd_pic = sh.exiftool.bake(*pic_opt, _out=sys.stdout, _err=sys.stderr)
+    cmd_video = sh.exiftool.bake(*video_opt, _out=sys.stdout, _err=sys.stderr)
     for f in fname:
         if is_video(f):
             cmd_video(f)
         else:
             cmd_pic(f)
+
+
+def copy_time(src, dst):
+    """Copy create, modify date time from src to dst.
+
+    macOS convert video serice changes video create, modify date time. I use
+    this to copy these time information from original video file.
+    """
+    TIME_TAGS = [
+            "TrackCreateDate", "TrackModifyDate", "MediaCreateDate",
+            "MediaModifyDate", "ModifyDate", "DateTimeOriginal", "CreateDate"]
+    tag_values = read_exif_tag(src, TIME_TAGS)
+
+    sh.exiftool(_exiftool_tag_option(tag_values), dst,
+                _out=sys.stdout, _err=sys.stderr)
 
 
 def copy_gps(src, time_shift=None, *dst):
@@ -167,9 +183,11 @@ def geotag(gpslog: str, fpath: str,
         copy_gps(geotag_jpg_file, time_shift, vfile)
         os.unlink(geotag_jpg_file)
 
+
 if __name__ == "__main__":
     argh.dispatch_commands([
         shift_time,
+        copy_time,
         copy_gps,
         geotag,
     ])
