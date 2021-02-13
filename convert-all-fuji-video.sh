@@ -1,11 +1,16 @@
 #!/bin/bash
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+set -e
+
+SRCDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 if [[ $# != 1 ]]; then
-    Usage: "$(basename $0) <dir>"
+    echo "Usage: $(basename $0) <dir>"
     exit 1
 fi
 
-find "$1" -name 'DSCF*.MOV' -exec "${DIR}/fuji.py" auto-convert {} \;
+export LD_LIBRARY_PATH=/share/CACHEDEV1_DATA/.qpkg/QPython3/lib
 
+find "$1" -type f -name 'DSCF*.MOV' -exec fuji.py auto-convert {} \;
+
+#$SRCDIR/fix-video-time.sh
