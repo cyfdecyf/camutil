@@ -35,8 +35,8 @@ def _exiftool_time_shift_option(time_shift, tags):
     return opt
 
 
-def _exiftool_tag_option(tag_values : Dict[str, str]):
-    return [f'-{k}={v}' for k, v in tag_values.items()]
+def _exiftool_tag_option(tag_values : Dict[str, str], exclude_keys=[]):
+    return [f'-{k}={v}' for k, v in tag_values.items() if k not in exclude_keys]
 
 
 def is_video(fname : str):
@@ -75,16 +75,18 @@ def shift_time(shift, *fname):
             cmd_pic(f)
 
 
-def copy_time(src, dst):
-    """Copy create, modify date time from src to dst.
+def copy_time(src, dst, extra_tags='Make,Model'):
+    """Copy create, modify date time and extra tags from src to dst.
 
-    macOS convert video serice changes video create, modify date time. I use
-    this to copy these time information from original video file.
+    macOS convert video serice changes video create, modify date time and drops
+    some other tags. Use this to copy these tags from original video file.
     """
     TIME_TAGS = [
             "TrackCreateDate", "TrackModifyDate", "MediaCreateDate",
             "MediaModifyDate", "ModifyDate", "DateTimeOriginal", "CreateDate"]
-    tag_values = read_exif_tag(src, TIME_TAGS)
+
+    extra_tags = extra_tags.split(',') if extra_tags else []
+    tag_values = read_exif_tag(src, TIME_TAGS + extra_tags)
 
     sh.exiftool(_exiftool_tag_option(tag_values), dst,
                 _out=sys.stdout, _err=sys.stderr)
@@ -92,8 +94,6 @@ def copy_time(src, dst):
 
 def copy_gps(src, time_shift=None, *dst):
     """Copy GPS related tags from src to dst.
-
-    Only tested on video destination file. (Because exiftool supports geotag picture file directly.)
 
     Args:
       time_shift: copy gps and shift time at the same time to avoid an extra
@@ -104,12 +104,15 @@ def copy_gps(src, time_shift=None, *dst):
         ["GPSCoordinates", "GPSAltitude", "GPSAltitudeRef",
          "GPSLatitude", "GPSLongitude", "GPSPosition", "GPSCoordinates"])
 
-    if "GPSCoordinates" not in gps_tag_values:
+    if "GPSCoordinates" not in gps_tag_values and \
+            ("GPSPosition" in gps_tag_values and "GPSAltitude" in gps_tag_values):
         # iPhone's jpg file has no GPSCoordinates, so we only add that tag for video file.
         gps_tag_values["GPSCoordinates"] = \
             f'{gps_tag_values["GPSPosition"]}, {gps_tag_values["GPSAltitude"]}'
 
-    cmd = sh.exiftool.bake(*_exiftool_tag_option(gps_tag_values))
+    # GPSPosition is a composite tag (combined from other tags) thus not
+    # writable.
+    cmd = sh.exiftool.bake(*_exiftool_tag_option(gps_tag_values, exclude_keys=["GPSPosition"]))
     if time_shift:
         time_shift_option = _exiftool_time_shift_option(time_shift, EXIF_VIDEO_DATE_TAGS)
         cmd = cmd.bake(*time_shift_option)
