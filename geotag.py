@@ -5,7 +5,7 @@ import os
 from os import path
 import shutil
 import sys
-from typing import Dict
+from typing import Dict, List
 
 import argh
 import sh
@@ -96,7 +96,7 @@ def copy_gps(src, time_shift=None, *dst):
     """Copy GPS related tags from src to dst.
 
     Args:
-      time_shift: copy gps and shift time at the same time to avoid an extra
+        time_shift: copy gps and shift time at the same time to avoid an extra
             file copy if doing these two actions separately
     """
     gps_tag_values = read_exif_tag(
@@ -120,8 +120,27 @@ def copy_gps(src, time_shift=None, *dst):
     cmd(*dst, _out=sys.stdout, _err=sys.stderr)
 
 
+def geotag_images(gpslog: str, fpath: List[str],
+                 overwrite_original: bool = False):
+    """Add geotag for image files.
+
+    Args:
+        gpslog: comma separated GPS log file
+        fpath: directory or files to add geotag
+    """
+    # Geotag for all picture files.
+    cmd = sh.exiftool
+    if overwrite_original:
+        cmd = cmd.bake("-overwrite_original")
+
+    for f in gpslog.split(","):
+        cmd = cmd.bake("-geotag", f)
+
+    cmd(*fpath, _out=sys.stdout, _err=sys.stderr)
+
+
 def geotag(gpslog: str, fpath: str,
-           video_pattern : str = "DSCF*.mov",
+           video_pattern: str = "DSCF*.mov",
            tag_file_time_shift=None,
            time_shift=None):
     """Geotag for picture and video using [exiftool](https://exiftool.org/).
@@ -132,11 +151,11 @@ def geotag(gpslog: str, fpath: str,
     Let exiftool do geo-tagging then copy the geotag to mov file.
 
     Args:
-      gpslog: comma separated GPS log file
-      fpath: either file or a directory, both jpg and video files will add geotag
-      video_pattern: only used when fpath is a directory
-      tag_file_time_shift: shift time (in hour) when generating temporary jpg tag file
-      time_shift: shift time (in hour) when generating the geotagged file
+        gpslog: comma separated GPS log file
+        fpath: either file or a directory, both jpg and video files will add geotag
+        video_pattern: only used when fpath is a directory
+        tag_file_time_shift: shift time (in hour) when generating temporary jpg tag file
+        time_shift: shift time (in hour) when generating the geotagged file
     """
     if path.isdir(fpath):
         flist = glob.glob(path.join(fpath, video_pattern))
@@ -149,7 +168,7 @@ def geotag(gpslog: str, fpath: str,
     TAG_FILE = path.join(SRC_DIR, "tag.jpg")
 
     print('generate geotag tmp jpg files for each video file')
-    video2tag = {} # For finding jpg tag file later.
+    video2tag = {}  # For finding jpg tag file later.
     for vfile in flist:
         fname, _ = path.splitext(vfile)
         dst = f'{fname}_fuji_geotag_tmp.jpg'
@@ -174,12 +193,8 @@ def geotag(gpslog: str, fpath: str,
             cmd(dst) #, _out=sys.stdout, _err=sys.stderr)
         print(f'\t{dst} created')
 
-    # Geotag for all picture files.
-    cmd = sh.exiftool.bake("-overwrite_original")
-    for f in gpslog.split(","):
-        cmd = cmd.bake("-geotag", f)
     print(f"====== geotag for all picture files in {dstdir} ======")
-    cmd(*video2tag.values(), _out=sys.stdout, _err=sys.stderr)
+    geotag_images(gpslog, video2tag.values(), overwrite_original=True)
 
     for vfile in flist:
         geotag_jpg_file = video2tag[vfile]
