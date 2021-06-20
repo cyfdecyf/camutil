@@ -3,7 +3,6 @@
 import glob
 import os
 from os import path
-import shutil
 import sys
 from typing import Dict, List
 
@@ -39,7 +38,22 @@ def _exiftool_tag_option(tag_values : Dict[str, str], exclude_keys=[]):
     return [f'-{k}={v}' for k, v in tag_values.items() if k not in exclude_keys]
 
 
-def is_video(fname : str):
+def glob_extend(fpath: List[str], pattern: str):
+    if pattern is None:
+        return fpath
+
+    lst = []
+    for f in fpath:
+        if path.isdir(f):
+            matches = glob.glob(path.join(f, pattern))
+            matches.sort()
+            lst.extend(matches)
+        else:
+            lst.append(f)
+    return lst
+
+
+def is_video(fname: str):
     fname = fname.lower()
     return fname.endswith("mov") or fname.endswith("mp4")
 
@@ -75,7 +89,7 @@ def shift_time(shift, *fname):
             cmd_pic(f)
 
 
-def copy_time(src, dst, extra_tags='Make,Model'):
+def copy_time(src, *dst, extra_tags='Make,Model'):
     """Copy create, modify date time and extra tags from src to dst.
 
     macOS convert video serice changes video create, modify date time and drops
@@ -120,15 +134,22 @@ def copy_gps(src, time_shift=None, *dst):
     cmd(*dst, _out=sys.stdout, _err=sys.stderr)
 
 
-def geotag_images(gpslog: str, fpath: List[str],
-                 overwrite_original: bool = False):
+@argh.arg('-f', '--fpath', action='extend', nargs='+', required=True)
+@argh.arg('-g', '--gpslog', action='extend', nargs='+', required=True)
+def image(fpath: List[str] = None,
+          gpslog: List[str] = None,
+          pattern: str = '*.jpg',
+          overwrite_original: bool = False):
     """Add geotag for image files.
 
     Args:
-        gpslog: comma separated GPS log file
-        fpath: directory or files to add geotag
+        fpath: space separated files or directories to add geotag
+        gpslog: space separated GPS log files
+        pattern: glob with this pattern for directories in fpath
+        overwrite_original: whether create copy of original file
     """
-    # Geotag for all picture files.
+    fpath = glob_extend(fpath, pattern)
+
     cmd = sh.exiftool
     if overwrite_original:
         cmd = cmd.bake("-overwrite_original")
@@ -139,11 +160,14 @@ def geotag_images(gpslog: str, fpath: List[str],
     cmd(*fpath, _out=sys.stdout, _err=sys.stderr)
 
 
-def geotag(gpslog: str, fpath: str,
-           video_pattern: str = "DSCF*.mov",
-           tag_file_time_shift=None,
-           time_shift=None):
-    """Geotag for picture and video using [exiftool](https://exiftool.org/).
+@argh.arg('-f', '--fpath', action='extend', nargs='+', required=True)
+@argh.arg('-g', '--gpslog', action='extend', nargs='+', required=True)
+def video(fpath: List[str] = None,
+          gpslog: List[str] = None,
+          pattern: str = None,
+          tag_file_time_shift=None,
+          time_shift=None):
+    """Geotag for video files using [exiftool](https://exiftool.org/).
 
     exiftool can geotag all jpeg files under a single directory but not for mov (QuickTime) file.
 
@@ -151,25 +175,21 @@ def geotag(gpslog: str, fpath: str,
     Let exiftool do geo-tagging then copy the geotag to mov file.
 
     Args:
-        gpslog: comma separated GPS log file
-        fpath: either file or a directory, both jpg and video files will add geotag
+        gpslog: space separated GPS log files
+        fpath: space separated files to add geotag
         video_pattern: only used when fpath is a directory
-        tag_file_time_shift: shift time (in hour) when generating temporary jpg tag file
-        time_shift: shift time (in hour) when generating the geotagged file
+        tag_file_time_shift: shift time (in hour) when generating temporary jpg tag file. Useful when video files
+            are using timezone different from OS system time
+        time_shift: shift time (in hour) when geotagging final output. Useful to change time to UTC for import into
+            macOS Photos
     """
-    if path.isdir(fpath):
-        flist = glob.glob(path.join(fpath, video_pattern))
-        flist.sort()
-        dstdir = fpath
-    else:
-        flist = [fpath]
-        dstdir = path.dirname(fpath)
+    fpath = glob_extend(fpath, pattern)
 
     TAG_FILE = path.join(SRC_DIR, "tag.jpg")
 
-    print('generate geotag tmp jpg files for each video file')
+    print('====== generate geotag tmp jpg files for each video file ======')
     video2tag = {}  # For finding jpg tag file later.
-    for vfile in flist:
+    for vfile in fpath:
         fname, _ = path.splitext(vfile)
         dst = f'{fname}_fuji_geotag_tmp.jpg'
         video2tag[vfile] = dst
@@ -183,20 +203,21 @@ def geotag(gpslog: str, fpath: str,
 
         cmd = sh.exiftool.bake(*_exiftool_tag_option(date_tag_values))
         # print("    copy create date from video file to jpg geotag file")
-        cmd("-o", dst, TAG_FILE) #, _out=sys.stdout, _err=sys.stderr)
+        cmd("-o", dst, TAG_FILE, _err=sys.stderr) #, _out=sys.stdout
 
         if tag_file_time_shift:
-            # print("    time shift for jpg geotag file")
+            print("    time shift for tmp jpg geotag file")
             cmd = sh.exiftool.bake(
                 "-overwrite_original",
                 *_exiftool_time_shift_option(tag_file_time_shift, EXIF_DATE_TAGS))
             cmd(dst) #, _out=sys.stdout, _err=sys.stderr)
         print(f'\t{dst} created')
 
-    print(f"====== geotag for all picture files in {dstdir} ======")
-    geotag_images(gpslog, video2tag.values(), overwrite_original=True)
+    print('====== geotag for all tmp jpg files ======')
+    image(gpslog, video2tag.values(), overwrite_original=True)
 
-    for vfile in flist:
+    print('====== copy GPS from tmp jpg to video ======')
+    for vfile in fpath:
         geotag_jpg_file = video2tag[vfile]
         copy_gps(geotag_jpg_file, time_shift, vfile)
         os.unlink(geotag_jpg_file)
@@ -207,5 +228,6 @@ if __name__ == "__main__":
         shift_time,
         copy_time,
         copy_gps,
-        geotag,
+        video,
+        image,
     ])
