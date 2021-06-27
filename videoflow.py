@@ -101,7 +101,7 @@ def flow(fpath: List[str] = None,
          pattern: str = None,
          output_dir: str = '000hevc',
          action: List[str] = None,
-         time_shift: str = '-8',
+         timezone: str = 'auto',
          preset: str = DEFAULT_AVCONVERT_PRESET):
     """Run work flow for video files.
 
@@ -111,9 +111,10 @@ def flow(fpath: List[str] = None,
         pattern: glob with this pattern for directories in fpath
         output_dir: output converted videos in this directory. For non-convert action,
             this is the directory to look for files to modify
-        action: list of actions to run, order is not ignored
-        time_shift: shift time by hours when geotagging final output
-        preset: preset for `avconvert`
+        action: list of actions to run, order is ignored. Valid actions: convert, copy-time, geotag
+        timezone: timezone for input video files, use hour offset to UTC to denote timezone, e.g. "+8" for Asia/Shanghai.
+            Refer to geotag.video for more details
+        preset: preset for ``avconvert`` command
     """
     if action is None:
         action = ['convert', 'copy-time', 'geotag']
@@ -138,7 +139,7 @@ def flow(fpath: List[str] = None,
             print('no gpslog, skip geotagg action')
             return
 
-        geotag.video(output_fpath, gpslog=gpslog, time_shift=time_shift)
+        geotag.video(output_fpath, gpslog=gpslog, timezone=timezone)
 
 
 if __name__ == "__main__":

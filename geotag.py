@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
+import datetime
 import glob
 import os
 from os import path
 import sys
-from typing import Dict, List
+from typing import Dict, List, Optional, Union
 
 import argh
 import sh
@@ -17,16 +18,35 @@ EXIF_VIDEO_DATE_TAGS = EXIF_DATE_TAGS + [
     "MediaCreateDate", "MediaModifyDate", "TrackCreateDate", "TrackModifyDate"]
 
 
-def _exiftool_time_shift_option(time_shift, tags):
+LOCAL_TZ_SHIFT_HOUR = int(datetime.datetime.utcnow().astimezone().utcoffset().total_seconds() / 3600)
+
+
+def _guess_video_file_time_zone(fname: str):
+    if 'DSCF' in fname:
+        return 8
+    else:
+        return 0
+
+
+def _shift_to_utc_timezone(timezone: int):
+    return -timezone
+
+
+def _shift_to_local_timezone(timezone: int):
+    utcshift = _shift_to_utc_timezone(timezone)
+    return utcshift + LOCAL_TZ_SHIFT_HOUR
+
+
+def _exiftool_time_shift_option(time_shift: int, tags: List[str]):
     """Generate exiftool time shift options.
 
     Args:
-      time_shift: Shift how many hours. Can be negative integer value.
+      time_shift: shift how many hours. Can be negative integer value.
       tags: date time related tags
     """
-    if time_shift[0] in ('+', '-'):
-        sign = time_shift[0]
-        time_shift = time_shift[1:]
+    if time_shift < 0:
+        sign = '-'
+        time_shift = -time_shift
     else:
         sign = '+'
 
@@ -106,13 +126,20 @@ def copy_time(src, *dst, extra_tags='Make,Model'):
                 _out=sys.stdout, _err=sys.stderr)
 
 
-def copy_gps(src, time_shift=None, *dst):
+def copy_gps(src, *dst, time_shift: Optional[Union[int, str]] = None):
     """Copy GPS related tags from src to dst.
 
     Args:
         time_shift: copy gps and shift time at the same time to avoid an extra
-            file copy if doing these two actions separately
+            file copy if doing these two actions separately. Specify 'auto' to guess time_shift
+            based on first destination file name.
     """
+    if time_shift == 'auto':
+        time_zone = _guess_video_file_time_zone(dst[0])
+        time_shift = _shift_to_utc_timezone(time_zone)
+    elif isinstance(time_shift, str):
+        time_shift = int(time_shift)
+
     gps_tag_values = read_exif_tag(
         src,
         ["GPSCoordinates", "GPSAltitude", "GPSAltitudeRef",
@@ -127,7 +154,7 @@ def copy_gps(src, time_shift=None, *dst):
     # GPSPosition is a composite tag (combined from other tags) thus not
     # writable.
     cmd = sh.exiftool.bake(*_exiftool_tag_option(gps_tag_values, exclude_keys=["GPSPosition"]))
-    if time_shift:
+    if time_shift != 0:
         time_shift_option = _exiftool_time_shift_option(time_shift, EXIF_VIDEO_DATE_TAGS)
         cmd = cmd.bake(*time_shift_option)
     print(f"add GPS tag for video file {dst}")
@@ -154,7 +181,7 @@ def image(fpath: List[str] = None,
     if overwrite_original:
         cmd = cmd.bake("-overwrite_original")
 
-    for f in gpslog.split(","):
+    for f in gpslog:
         cmd = cmd.bake("-geotag", f)
 
     cmd(*fpath, _out=sys.stdout, _err=sys.stderr)
@@ -164,9 +191,8 @@ def image(fpath: List[str] = None,
 @argh.arg('-g', '--gpslog', action='extend', nargs='+', required=True)
 def video(fpath: List[str] = None,
           gpslog: List[str] = None,
-          pattern: str = None,
-          tag_file_time_shift=None,
-          time_shift=None):
+          timezone: str = 'auto',
+          pattern: str = None):
     """Geotag for video files using [exiftool](https://exiftool.org/).
 
     exiftool can geotag all jpeg files under a single directory but not for mov (QuickTime) file.
@@ -174,16 +200,28 @@ def video(fpath: List[str] = None,
     So for mov files, we copy an empty jpeg file and set it's creation time the same as the move file.
     Let exiftool do geo-tagging then copy the geotag to mov file.
 
+    For timezones:
+
+    - The final video files' creation time is in UTC
+      - macOS Photos will shift video time to local timezone
+    - Temporary image files used for geotagging is in local timezone
+
     Args:
-        gpslog: space separated GPS log files
         fpath: space separated files to add geotag
-        video_pattern: only used when fpath is a directory
-        tag_file_time_shift: shift time (in hour) when generating temporary jpg tag file. Useful when video files
-            are using timezone different from OS system time
-        time_shift: shift time (in hour) when geotagging final output. Useful to change time to UTC for import into
-            macOS Photos
+        gpslog: space separated GPS log files
+        pattern: only used when fpath is a directory
+        timezone: timezone for input video files, use hour offset to UTC to denote timezone, e.g. "+8" for Asia/Shanghai.
+            Defaults to auto which makes guess based on file name
     """
     fpath = glob_extend(fpath, pattern)
+
+    if timezone == 'auto':
+        timezone = _guess_video_file_time_zone(fpath[0])
+    else:
+        timezone = int(timezone)
+
+    time_shift = _shift_to_utc_timezone(timezone)
+    tag_file_time_shift = _shift_to_local_timezone(timezone)
 
     TAG_FILE = path.join(SRC_DIR, "tag.jpg")
 
@@ -205,21 +243,21 @@ def video(fpath: List[str] = None,
         # print("    copy create date from video file to jpg geotag file")
         cmd("-o", dst, TAG_FILE, _err=sys.stderr) #, _out=sys.stdout
 
-        if tag_file_time_shift:
-            print("    time shift for tmp jpg geotag file")
+        if tag_file_time_shift != 0:
+            # print(f"    time shift {tag_file_time_shift} for tmp jpg geotag file")
             cmd = sh.exiftool.bake(
                 "-overwrite_original",
                 *_exiftool_time_shift_option(tag_file_time_shift, EXIF_DATE_TAGS))
-            cmd(dst) #, _out=sys.stdout, _err=sys.stderr)
+            cmd(dst, _out=sys.stdout, _err=sys.stderr)
         print(f'\t{dst} created')
 
     print('====== geotag for all tmp jpg files ======')
-    image(gpslog, video2tag.values(), overwrite_original=True)
+    image(video2tag.values(), gpslog, overwrite_original=True)
 
     print('====== copy GPS from tmp jpg to video ======')
     for vfile in fpath:
         geotag_jpg_file = video2tag[vfile]
-        copy_gps(geotag_jpg_file, time_shift, vfile)
+        copy_gps(geotag_jpg_file, vfile, time_shift=time_shift)
         os.unlink(geotag_jpg_file)
 
 
