@@ -126,7 +126,7 @@ def copy_time(src, *dst, extra_tags='Make,Model'):
                 _out=sys.stdout, _err=sys.stderr)
 
 
-def copy_gps(src, *dst, time_shift: Optional[Union[int, str]] = None):
+def copy_gps(src, *dst, time_shift: Optional[Union[int, str]] = 0):
     """Copy GPS related tags from src to dst.
 
     Args:

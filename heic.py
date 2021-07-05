@@ -26,9 +26,8 @@ def _convert1(fname: str, quality: int):
         raise ValueError(f'{fname} has no suffix, is it really an image file?')
 
     out_fname = f'{bname}.heic'
-    return out_fname
 
-    cmd = sh.sips(
+    sh.sips(
         '-s', 'format', 'heic',
         '-s', 'formatOptions', f'{quality}',
         '--out', out_fname,
@@ -37,29 +36,27 @@ def _convert1(fname: str, quality: int):
     return out_fname
 
 
-def convert_to_heic(fpath: str, gpslog: Optional[str] = None,
-                    ext='tif', quality: int = 89):
+@argh.arg('-f', '--fpath', action='extend', nargs='+', required=True)
+@argh.arg('-g', '--gpslog', action='extend', nargs='+')
+def convert_to_heic(fpath: str = None, gpslog: Optional[str] = None,
+                    pattern='*.tif', quality: int = 89):
     """Convert image files to HEIC format.
 
     Args:
-        fpath: single directory or file
+        fpath: space separated files or directories to add geotag
         gpslogs: GPS log files, comma separated list
         ext: when fpath is directory, glob with this file extension
         quality: quality for HEIC file, number range from 0-100
     """
+    fpath = geotag.glob_extend(fpath, pattern)
     quality = int(quality)
-    if path.isdir(fpath):
-        flist = glob(path.join(fpath, f'*.{ext}'))
-        flist.sort()
-    else:
-        flist = [fpath]
 
     heic_flist = []
-    for fname in flist:
+    for fname in fpath:
         heic_flist.append(_convert1(fname, quality))
 
     if len(heic_flist) > 0 and gpslog is not None:
-        geotag.geotag_images(gpslog, heic_flist)
+        geotag.image(heic_flist, gpslog)
 
 
 if __name__ == "__main__":
