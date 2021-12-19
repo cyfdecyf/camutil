@@ -17,13 +17,33 @@ EXIF_DATE_TAGS = ['CreateDate', 'DateTimeOriginal', 'ModifyDate', 'DateCreated']
 EXIF_VIDEO_DATE_TAGS = EXIF_DATE_TAGS + [
     "MediaCreateDate", "MediaModifyDate", "TrackCreateDate", "TrackModifyDate"]
 
+# Sony uses DeviceManufacturer and DeviceModelName instead of Make and Model.
+# But exiftool doesn't support writing these tags.
+# So we map these tags to Make and Model.
+EXIF_CAMERA_MODEL_TAGS = {
+    'Make': None,
+    'Model': None,
+    'DeviceManufacturer': 'Make',
+    'DeviceModelName': 'Model',
+}
+
+
+def _canonic_camera_model_tag(tag_values: Dict[str, str]):
+    for tag, canonic_tag in EXIF_CAMERA_MODEL_TAGS.items():
+        if canonic_tag is None or tag not in tag_values:
+            continue
+
+        tag_values[canonic_tag] = tag_values[tag]
+        del tag_values[tag]
+
 
 LOCAL_TZ_SHIFT_HOUR = int(datetime.datetime.utcnow().astimezone().utcoffset().total_seconds() / 3600)
 
 
 def _guess_video_file_time_zone(fname: str):
+    # Fujifilm camera's video uses local time zone.
     if 'DSCF' in fname:
-        return 8
+        return LOCAL_TZ_SHIFT_HOUR
     else:
         return 0
 
@@ -78,7 +98,7 @@ def is_video(fname: str):
     return fname.endswith("mov") or fname.endswith("mp4")
 
 
-def read_exif_tag(fname, tags):
+def read_exif_tag(fname: str, tags: List[str]) -> Dict[str, str]:
     """Read tags and return a dict containing tag & values."""
     cmd = sh.exiftool.bake("-s2", *[f"-{t}" for t in tags])
     out = cmd(fname)
@@ -109,18 +129,18 @@ def shift_time(shift, *fname):
             cmd_pic(f)
 
 
-def copy_time(src, *dst, extra_tags='Make,Model'):
+def copy_time(src, *dst):
     """Copy create, modify date time and extra tags from src to dst.
 
-    macOS convert video serice changes video create, modify date time and drops
+    macOS convert video service changes video create, modify date time and drops
     some other tags. Use this to copy these tags from original video file.
     """
     TIME_TAGS = [
             "TrackCreateDate", "TrackModifyDate", "MediaCreateDate",
             "MediaModifyDate", "ModifyDate", "DateTimeOriginal", "CreateDate"]
 
-    extra_tags = extra_tags.split(',') if extra_tags else []
-    tag_values = read_exif_tag(src, TIME_TAGS + extra_tags)
+    tag_values = read_exif_tag(src, TIME_TAGS + list(EXIF_CAMERA_MODEL_TAGS.keys()))
+    _canonic_camera_model_tag(tag_values)
 
     sh.exiftool(_exiftool_tag_option(tag_values), dst,
                 _out=sys.stdout, _err=sys.stderr)
