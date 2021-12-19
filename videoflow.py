@@ -92,10 +92,21 @@ def _copy_time(fpath: List[str], output_fpath: List[str]):
         geotag.copy_time(src, dst)
 
 
-@argh.arg('-f', '--fpath', action='extend', nargs='+', required=True)
-@argh.arg('-g', '--gpslog', action='extend', nargs='+')
-@argh.arg('-a', '--action', action='extend', nargs='+')
-@argh.arg('-p', '--pattern')
+@argh.arg('-f', '--fpath', action='extend', nargs='+', required=True,
+          help='space separated files or directories to add geotag')
+@argh.arg('-g', '--gpslog', action='extend', nargs='+',
+          help='space separated GPS log files')
+@argh.arg('-a', '--action', action='extend', nargs='+', default=['convert', 'copy-time', 'geotag'],
+          help='list of actions to run, order is ignored. Valid actions: convert, copy-time, geotag')
+@argh.arg('-p', '--pattern',
+          help='glob with this pattern for directories in fpath')
+@argh.arg('-o', '--output-dir',
+          help='output converted videos in this directory. For non-convert action, this is the directory to look for files to modify')
+@argh.arg('-t', '--timezone',
+          help='timezone for input video files, use hour offset to UTC to denote timezone, e.g. "+8" for Asia/Shanghai.'
+               ' Refer to geotag.video for more details')
+@argh.arg('--preset',
+          help='preset for ``avconvert`` command')
 def flow(fpath: List[str] = None,
          gpslog: List[str] = None,
          pattern: str = None,
@@ -103,19 +114,7 @@ def flow(fpath: List[str] = None,
          action: List[str] = None,
          timezone: str = 'auto',
          preset: str = DEFAULT_AVCONVERT_PRESET):
-    """Run work flow for video files.
-
-    Args:
-        fpath: space separated files or directories to add geotag
-        gpslog: space separated GPS log files
-        pattern: glob with this pattern for directories in fpath
-        output_dir: output converted videos in this directory. For non-convert action,
-            this is the directory to look for files to modify
-        action: list of actions to run, order is ignored. Valid actions: convert, copy-time, geotag
-        timezone: timezone for input video files, use hour offset to UTC to denote timezone, e.g. "+8" for Asia/Shanghai.
-            Refer to geotag.video for more details
-        preset: preset for ``avconvert`` command
-    """
+    """Run work flow for video files."""
     if action is None:
         action = ['convert', 'copy-time', 'geotag']
 

@@ -36,20 +36,18 @@ def _convert1(fname: str, quality: int):
     return out_fname
 
 
-@argh.arg('-f', '--fpath', action='extend', nargs='+', required=True)
-@argh.arg('-g', '--gpslog', action='extend', nargs='+')
+@argh.arg('-f', '--fpath', action='extend', nargs='+', required=True,
+          help='space separated files or directories to add geotag')
+@argh.arg('-g', '--gpslog', action='extend', nargs='+',
+          help='GPS log files, comma separated list')
+@argh.arg('-p', '--pattern',
+          help='when fpath is directory, glob with this file extension')
+@argh.arg('-q', '--quality', type=int, default=89,
+          help='when fpath is directory, glob with this file extension')
 def convert_to_heic(fpath: str = None, gpslog: Optional[str] = None,
                     pattern='*.tif', quality: int = 89):
-    """Convert image files to HEIC format.
-
-    Args:
-        fpath: space separated files or directories to add geotag
-        gpslogs: GPS log files, comma separated list
-        ext: when fpath is directory, glob with this file extension
-        quality: quality for HEIC file, number range from 0-100
-    """
+    """Convert image files to HEIC format."""
     fpath = geotag.glob_extend(fpath, pattern)
-    quality = int(quality)
 
     heic_flist = []
     for fname in fpath:
