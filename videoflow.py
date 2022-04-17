@@ -96,7 +96,7 @@ def _copy_time(fpath: List[str], output_fpath: List[str]):
           help='space separated files or directories to add geotag')
 @argh.arg('-g', '--gpslog', action='extend', nargs='+',
           help='space separated GPS log files')
-@argh.arg('-a', '--action', action='extend', nargs='+', default=['convert', 'copy-time', 'geotag'],
+@argh.arg('-a', '--action', action='extend', nargs='+', default=None,
           help='list of actions to run, order is ignored. Valid actions: convert, copy-time, geotag')
 @argh.arg('-p', '--pattern',
           help='glob with this pattern for directories in fpath')
