@@ -60,6 +60,9 @@ def convert_h265(fpath: List[str] = None,
         output_fname = path.join(output_dir, f'{bname}.{OUTPUT_EXT}')
         if path.exists(output_fname):
             print(f'skip convert {f}')
+            # Add to output file list so following action can process the
+            # skip converting file.
+            output_fpath.append(output_fname)
             continue
 
         print(f'convert {f} to {output_fname}')
