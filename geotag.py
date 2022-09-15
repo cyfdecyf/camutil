@@ -4,6 +4,7 @@ import datetime
 import glob
 import os
 from os import path
+import re
 import sys
 from typing import Dict, List, Optional, Union
 
@@ -30,7 +31,27 @@ EXIF_CAMERA_MODEL_TAGS = {
 }
 
 
-def _canonic_camera_model_tag(tag_values: Dict[str, str]):
+DEFAULT_CAMERA_MODEL = {
+    'SONY': 'ICLE-7M4',
+}
+
+
+# It's possible that I rename file to add information about the video.
+_FNAME_RE_SONY = re.compile(r'C\d\d\d\d.*\.MP4')
+
+
+def guess_camera_maker(fname: str):
+    if 'DSCF' in fname:
+        return 'Fujifilm'
+
+    if _FNAME_RE_SONY.match(fname):
+        print('matched sony file')
+        return 'SONY'
+
+    return None
+
+
+def _canonic_camera_model_tag(fname: str, tag_values: Dict[str, str]):
     for tag, canonic_tag in EXIF_CAMERA_MODEL_TAGS.items():
         if canonic_tag is None or tag not in tag_values:
             continue
@@ -38,13 +59,25 @@ def _canonic_camera_model_tag(tag_values: Dict[str, str]):
         tag_values[canonic_tag] = tag_values[tag]
         del tag_values[tag]
 
+    if 'Make' not in tag_values:
+        maker = guess_camera_maker(fname)
+        if maker:
+            tag_values['Make'] = maker
+
+    if 'Model' not in tag_values:
+        model = DEFAULT_CAMERA_MODEL.get(tag_values['Make'], None)
+        if model:
+            tag_values['Model'] = model
+
+
 
 LOCAL_TZ_SHIFT_HOUR = int(datetime.datetime.utcnow().astimezone().utcoffset().total_seconds() / 3600)
 
 
 def _guess_video_file_time_zone(fname: str):
+    maker = guess_camera_maker(fname)
     # Fujifilm camera's video uses local time zone.
-    if 'DSCF' in fname:
+    if maker == 'Fujifilm':
         return LOCAL_TZ_SHIFT_HOUR
     else:
         return 0
@@ -151,7 +184,7 @@ def copy_time(src, *dst):
             "MediaModifyDate", "ModifyDate", "DateTimeOriginal", "CreateDate"]
 
     tag_values = read_exif_tag(src, TIME_TAGS + list(EXIF_CAMERA_MODEL_TAGS.keys()))
-    _canonic_camera_model_tag(tag_values)
+    _canonic_camera_model_tag(src, tag_values)
 
     sh.exiftool(_exiftool_tag_option(tag_values), dst,
                 _out=sys.stdout, _err=sys.stderr)
