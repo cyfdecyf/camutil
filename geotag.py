@@ -16,6 +16,8 @@ EXIF_DATE_TAGS = ['CreateDate', 'DateTimeOriginal', 'ModifyDate', 'DateCreated']
 #EXIF_DATE_TAGS = ['CreateDate', 'DateTimeOriginal', 'ModifyDate', 'DateCreated', 'IPTC:TimeCreated', 'IPTC:DigitalCreationTime']
 EXIF_VIDEO_DATE_TAGS = EXIF_DATE_TAGS + [
     "MediaCreateDate", "MediaModifyDate", "TrackCreateDate", "TrackModifyDate"]
+GPS_TAGS = ["GPSCoordinates", "GPSAltitude", "GPSAltitudeRef",
+         "GPSLatitude", "GPSLongitude", "GPSPosition", "GPSCoordinates"]
 
 # Sony uses DeviceManufacturer and DeviceModelName instead of Make and Model.
 # But exiftool doesn't support writing these tags.
@@ -78,6 +80,15 @@ def _exiftool_tag_option(tag_values : Dict[str, str], exclude_keys=[]):
     return [f'-{k}={v}' for k, v in tag_values.items() if k not in exclude_keys]
 
 
+def _filter_no_gps_tag_file(fpath: List[str]):
+    """Keep only files that have no GPS tags."""
+    notag_fpath = [f for f in fpath if len(read_exif_tag(f, GPS_TAGS)) == 0]
+    if len(notag_fpath) != len(fpath):
+        skip = set(fpath) - set(notag_fpath)
+        print(f'skip tagging already geotagged files: {", ".join(skip)}')
+    return notag_fpath
+
+
 def glob_extend(fpath: List[str], pattern: str):
     if pattern is None:
         return fpath
@@ -115,7 +126,7 @@ def shift_time(shift, *fname):
 
     Most useful to convert video file time to UTC. Apple's Photos app
     considers vidoe date time without time zone info as in UTC. This behavior
-    is different than handling picture files.
+    is different from handling picture files.
     """
     video_opt = _exiftool_time_shift_option(shift, EXIF_VIDEO_DATE_TAGS)
     pic_opt = _exiftool_time_shift_option(shift, EXIF_DATE_TAGS)
@@ -160,10 +171,7 @@ def copy_gps(src, *dst, time_shift: Optional[Union[int, str]] = 0):
     elif isinstance(time_shift, str):
         time_shift = int(time_shift)
 
-    gps_tag_values = read_exif_tag(
-        src,
-        ["GPSCoordinates", "GPSAltitude", "GPSAltitudeRef",
-         "GPSLatitude", "GPSLongitude", "GPSPosition", "GPSCoordinates"])
+    gps_tag_values = read_exif_tag(src, GPS_TAGS)
 
     if "GPSCoordinates" not in gps_tag_values and \
             ("GPSPosition" in gps_tag_values and "GPSAltitude" in gps_tag_values):
@@ -186,6 +194,7 @@ def copy_gps(src, *dst, time_shift: Optional[Union[int, str]] = 0):
 def image(fpath: List[str] = None,
           gpslog: List[str] = None,
           pattern: str = '*.jpg',
+          force: bool = False,
           overwrite_original: bool = False):
     """Add geotag for image files.
 
@@ -193,9 +202,13 @@ def image(fpath: List[str] = None,
         fpath: space separated files or directories to add geotag
         gpslog: space separated GPS log files
         pattern: glob with this pattern for directories in fpath
+        force: update GPS tag even if image files already contain GPS tags.
         overwrite_original: whether create copy of original file
     """
     fpath = glob_extend(fpath, pattern)
+
+    if not force:
+        fpath = _filter_no_gps_tag_file(fpath)
 
     cmd = sh.exiftool
     if overwrite_original:
@@ -212,13 +225,14 @@ def image(fpath: List[str] = None,
 def video(fpath: List[str] = None,
           gpslog: List[str] = None,
           timezone: str = 'auto',
+          force: bool = False,
           pattern: str = None):
     """Geotag for video files using [exiftool](https://exiftool.org/).
 
     exiftool can geotag all jpeg files under a single directory but not for mov (QuickTime) file.
 
-    So for mov files, we copy an empty jpeg file and set it's creation time the same as the move file.
-    Let exiftool do geo-tagging then copy the geotag to mov file.
+    So for mov files, we copy an empty jpeg file and set its creation time the same as the move file.
+    Let exiftool do geotag then copy the geotag to mov file.
 
     For timezones:
 
@@ -234,6 +248,9 @@ def video(fpath: List[str] = None,
             Defaults to auto which makes guess based on file name
     """
     fpath = glob_extend(fpath, pattern)
+
+    if not force:
+        fpath = _filter_no_gps_tag_file(fpath)
 
     if timezone == 'auto':
         timezone = _guess_video_file_time_zone(fpath[0])
