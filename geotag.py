@@ -189,22 +189,22 @@ def copy_gps(src, *dst, time_shift: Optional[Union[int, str]] = 0):
     cmd(*dst, _out=sys.stdout, _err=sys.stderr)
 
 
-@argh.arg('-f', '--fpath', action='extend', nargs='+', required=True)
-@argh.arg('-g', '--gpslog', action='extend', nargs='+', required=True)
+@argh.arg('-f', '--fpath', action='extend', nargs='+', required=True,
+          help='space separated files or directories to add geotag')
+@argh.arg('-g', '--gpslog', action='extend', nargs='+', required=True,
+          help='space separated GPS log files')
+@argh.arg('-p', '--pattern',
+          help='glob with this pattern for directories in fpath')
+@argh.arg('-o', '--overwrite-original',
+          help=' whether create copy of original file')
+@argh.arg('--force',
+          help='update GPS tag even if image files already contain GPS tags.')
 def image(fpath: List[str] = None,
           gpslog: List[str] = None,
           pattern: str = '*.jpg',
-          force: bool = False,
-          overwrite_original: bool = False):
-    """Add geotag for image files.
-
-    Args:
-        fpath: space separated files or directories to add geotag
-        gpslog: space separated GPS log files
-        pattern: glob with this pattern for directories in fpath
-        force: update GPS tag even if image files already contain GPS tags.
-        overwrite_original: whether create copy of original file
-    """
+          overwrite_original: bool = False,
+          force: bool = False):
+    """Add geotag for image files."""
     fpath = glob_extend(fpath, pattern)
 
     if not force:
@@ -220,13 +220,22 @@ def image(fpath: List[str] = None,
     cmd(*fpath, _out=sys.stdout, _err=sys.stderr)
 
 
-@argh.arg('-f', '--fpath', action='extend', nargs='+', required=True)
-@argh.arg('-g', '--gpslog', action='extend', nargs='+', required=True)
+@argh.arg('-f', '--fpath', action='extend', nargs='+', required=True,
+          help='space separated files or directories to add geotag')
+@argh.arg('-g', '--gpslog', action='extend', nargs='+', required=True,
+          help='space separated GPS log files')
+@argh.arg('-p', '--pattern',
+          help='glob with this pattern for directories in fpath')
+@argh.arg('-t', '--timezone',
+          help='timezone for input video files, use hour offset to UTC to denote timezone, e.g. "+8" for Asia/Shanghai. '
+               'Defaults to auto which makes guess based on file name')
+@argh.arg('--force',
+          help='update GPS tag even if image files already contain GPS tags.')
 def video(fpath: List[str] = None,
           gpslog: List[str] = None,
+          pattern: str = None,
           timezone: str = 'auto',
-          force: bool = False,
-          pattern: str = None):
+          force: bool = False):
     """Geotag for video files using [exiftool](https://exiftool.org/).
 
     exiftool can geotag all jpeg files under a single directory but not for mov (QuickTime) file.
@@ -239,13 +248,6 @@ def video(fpath: List[str] = None,
     - The final video files' creation time is in UTC
       - macOS Photos will shift video time to local timezone
     - Temporary image files used for geotagging is in local timezone
-
-    Args:
-        fpath: space separated files to add geotag
-        gpslog: space separated GPS log files
-        pattern: only used when fpath is a directory
-        timezone: timezone for input video files, use hour offset to UTC to denote timezone, e.g. "+8" for Asia/Shanghai.
-            Defaults to auto which makes guess based on file name
     """
     fpath = glob_extend(fpath, pattern)
 
