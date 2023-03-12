@@ -2,6 +2,7 @@
 
 import datetime
 import glob
+import io
 import os
 from os import path
 from pathlib import Path
@@ -146,16 +147,17 @@ def is_video(fname: str):
     return fname.endswith("mov") or fname.endswith("mp4")
 
 
-exiftool = sh.exiftool.bake("-api", "largefilesupport=1")
+exiftool = sh.exiftool.bake("-api", "largefilesupport=1", _out=sys.stdout, _err=sys.stderr)
 
 
 def read_exif_tag(fname: str, tags: List[str]) -> Dict[str, str]:
     """Read tags and return a dict containing tag & values."""
-    cmd = exiftool.bake("-api", "largefilesupport=1", "-s2", *[f"-{t}" for t in tags])
-    out = cmd(fname)
+    out = io.StringIO()
+    cmd = exiftool.bake("-s2", *[f"-{t}" for t in tags], _out=out)
+    cmd(fname)
 
     r = {}
-    for l in out.stdout.decode('utf-8').splitlines():
+    for l in out.getvalue().splitlines():
         k, v = l.split(': ', 1)
         r[k] = v
     return r
@@ -171,8 +173,8 @@ def shift_time(shift, *fname):
     video_opt = _exiftool_time_shift_option(shift, EXIF_VIDEO_DATE_TAGS)
     pic_opt = _exiftool_time_shift_option(shift, EXIF_DATE_TAGS)
 
-    cmd_pic = exiftool.bake(*pic_opt, _out=sys.stdout, _err=sys.stderr)
-    cmd_video = exiftool.bake(*video_opt, _out=sys.stdout, _err=sys.stderr)
+    cmd_pic = exiftool.bake(*pic_opt)
+    cmd_video = exiftool.bake(*video_opt)
     for f in fname:
         if is_video(f):
             cmd_video(f)
@@ -193,8 +195,7 @@ def copy_time(src, *dst):
     tag_values = read_exif_tag(src, TIME_TAGS + list(EXIF_CAMERA_MODEL_TAGS.keys()))
     _canonic_camera_model_tag(src, tag_values)
 
-    exiftool(_exiftool_tag_option(tag_values), dst,
-                _out=sys.stdout, _err=sys.stderr)
+    exiftool(_exiftool_tag_option(tag_values), dst)
 
 
 def copy_gps(src, *dst, time_shift: Optional[Union[int, str]] = 0):
@@ -226,7 +227,7 @@ def copy_gps(src, *dst, time_shift: Optional[Union[int, str]] = 0):
         time_shift_option = _exiftool_time_shift_option(time_shift, EXIF_VIDEO_DATE_TAGS)
         cmd = cmd.bake(*time_shift_option)
     print(f"add GPS tag for video file {dst}")
-    cmd(*dst, _out=sys.stdout, _err=sys.stderr)
+    cmd(*dst)
 
 
 @argh.arg('-f', '--fpath', action='extend', nargs='+', required=True,
@@ -257,7 +258,7 @@ def image(fpath: List[str] = None,
     for f in gpslog:
         cmd = cmd.bake("-geotag", f)
 
-    cmd(*fpath, _out=sys.stdout, _err=sys.stderr)
+    cmd(*fpath)
 
 
 @argh.arg('-f', '--fpath', action='extend', nargs='+', required=True,
@@ -320,14 +321,14 @@ def video(fpath: List[str] = None,
 
         cmd = exiftool.bake(*_exiftool_tag_option(date_tag_values))
         # print("    copy create date from video file to jpg geotag file")
-        cmd("-o", dst, str(TAG_FILE), _err=sys.stderr) #, _out=sys.stdout
+        cmd("-o", dst, str(TAG_FILE), _out=None)
 
         if tag_file_time_shift != 0:
             # print(f"    time shift {tag_file_time_shift} for tmp jpg geotag file")
             cmd = exiftool.bake(
                 "-overwrite_original",
                 *_exiftool_time_shift_option(tag_file_time_shift, EXIF_DATE_TAGS))
-            cmd(dst, _out=sys.stdout, _err=sys.stderr)
+            cmd(dst)
         print(f'\t{dst} created')
 
     print('====== geotag for all tmp jpg files ======')
@@ -352,6 +353,7 @@ def make_model(
         make: str = None,
         model: str = None,
         force: bool = False):
+    """Set camera manufacturer and model."""
     if not force:
         fpath = _filter_no_tag_file(fpath, ['Make', 'Model'])
 
