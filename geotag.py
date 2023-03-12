@@ -117,12 +117,12 @@ def _exiftool_tag_option(tag_values : Dict[str, str], exclude_keys=[]):
     return [f'-{k}={v}' for k, v in tag_values.items() if k not in exclude_keys]
 
 
-def _filter_no_gps_tag_file(fpath: List[str]):
+def _filter_no_tag_file(fpath: List[str], tags: List[str]):
     """Keep only files that have no GPS tags."""
-    notag_fpath = [f for f in fpath if len(read_exif_tag(f, GPS_TAGS)) == 0]
+    notag_fpath = [f for f in fpath if len(read_exif_tag(f, tags)) == 0]
     if len(notag_fpath) != len(fpath):
         skip = set(fpath) - set(notag_fpath)
-        print(f'skip tagging already geotagged files: {", ".join(skip)}')
+        print(f'skip files: {", ".join(skip)}')
     return notag_fpath
 
 
@@ -248,7 +248,7 @@ def image(fpath: List[str] = None,
     fpath = glob_extend(fpath, pattern)
 
     if not force:
-        fpath = _filter_no_gps_tag_file(fpath)
+        fpath = _filter_no_tag_file(fpath, GPS_TAGS)
 
     cmd = exiftool
     if overwrite_original:
@@ -292,7 +292,7 @@ def video(fpath: List[str] = None,
     fpath = glob_extend(fpath, pattern)
 
     if not force:
-        fpath = _filter_no_gps_tag_file(fpath)
+        fpath = _filter_no_tag_file(fpath, GPS_TAGS)
 
     if timezone == 'auto':
         timezone = _guess_video_file_time_zone(fpath[0])
@@ -340,6 +340,25 @@ def video(fpath: List[str] = None,
         os.unlink(geotag_jpg_file)
 
 
+@argh.arg('-f', '--fpath', action='extend', nargs='+', required=True,
+          help='space separated files or directories to add geotag')
+@argh.arg('--make', required=True,
+          help='specify camera manufacturer')
+@argh.arg('--model', required=True,
+          help='space camera model')
+@argh.arg('--force', help='update make and model tags even if image files already contain those tags')
+def make_model(
+        fpath: List[str] = None,
+        make: str = None,
+        model: str = None,
+        force: bool = False):
+    if not force:
+        fpath = _filter_no_tag_file(fpath, ['Make', 'Model'])
+
+    cmd = exiftool.bake(*_exiftool_tag_option({'Make': make, 'Model': model}))
+    cmd(*fpath)
+
+
 if __name__ == "__main__":
     argh.dispatch_commands([
         shift_time,
@@ -347,4 +366,5 @@ if __name__ == "__main__":
         copy_gps,
         video,
         image,
+        make_model,
     ])
