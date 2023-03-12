@@ -4,6 +4,7 @@ import datetime
 import glob
 import os
 from os import path
+from pathlib import Path
 import re
 import sys
 from typing import Dict, List, Optional, Union
@@ -12,7 +13,8 @@ import argh
 import sh
 
 
-SRC_DIR = path.abspath(path.dirname(__file__))
+SRC_DIR = Path(__file__).parent.absolute()
+
 EXIF_DATE_TAGS = ['CreateDate', 'DateTimeOriginal', 'ModifyDate', 'DateCreated']
 #EXIF_DATE_TAGS = ['CreateDate', 'DateTimeOriginal', 'ModifyDate', 'DateCreated', 'IPTC:TimeCreated', 'IPTC:DigitalCreationTime']
 EXIF_VIDEO_DATE_TAGS = EXIF_DATE_TAGS + [
@@ -37,16 +39,18 @@ DEFAULT_CAMERA_MODEL = {
 
 
 # It's possible that I rename file to add information about the video.
-_FNAME_RE_SONY = re.compile(r'C\d\d\d\d.*\.MP4')
+_FNAME_RE_SONY_VIDEO = re.compile(r'C\d\d\d\d.*\.MP4')
+_FNAME_RE_SONY_IMAGE = re.compile(r'DSC\d\d\d\d.*')
 
 
 def guess_camera_maker(fname: str):
-    if 'DSCF' in fname:
-        return 'Fujifilm'
-
-    if _FNAME_RE_SONY.match(fname):
-        print('matched sony file')
+    if _FNAME_RE_SONY_IMAGE.match(fname) or _FNAME_RE_SONY_VIDEO.match(fname):
+        print('guessed SONY camera file')
         return 'SONY'
+
+    if Path(fname).name.startswith('DSCF'):
+        print('guessed Fujifilm camera file')
+        return 'Fujifilm'
 
     return None
 
@@ -298,7 +302,7 @@ def video(fpath: List[str] = None,
     time_shift = _shift_to_utc_timezone(timezone)
     tag_file_time_shift = _shift_to_local_timezone(timezone)
 
-    TAG_FILE = path.join(SRC_DIR, "tag.jpg")
+    TAG_FILE = SRC_DIR / 'tag.jpg'
 
     print('====== generate geotag tmp jpg files for each video file ======')
     video2tag = {}  # For finding jpg tag file later.
@@ -316,7 +320,7 @@ def video(fpath: List[str] = None,
 
         cmd = exiftool.bake(*_exiftool_tag_option(date_tag_values))
         # print("    copy create date from video file to jpg geotag file")
-        cmd("-o", dst, TAG_FILE, _err=sys.stderr) #, _out=sys.stdout
+        cmd("-o", dst, str(TAG_FILE), _err=sys.stderr) #, _out=sys.stdout
 
         if tag_file_time_shift != 0:
             # print(f"    time shift {tag_file_time_shift} for tmp jpg geotag file")
