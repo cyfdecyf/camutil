@@ -250,6 +250,9 @@ def image(fpath: List[str] = None,
 
     if not force:
         fpath = _filter_no_tag_file(fpath, GPS_TAGS)
+    if len(fpath) == 0:
+        print(f'no files need to process')
+        return
 
     cmd = exiftool
     if overwrite_original:
@@ -294,6 +297,9 @@ def video(fpath: List[str] = None,
 
     if not force:
         fpath = _filter_no_tag_file(fpath, GPS_TAGS)
+    if len(fpath) == 0:
+        print(f'no files need to process')
+        return
 
     if timezone == 'auto':
         timezone = _guess_video_file_time_zone(fpath[0])
@@ -356,6 +362,9 @@ def make_model(
     """Set camera manufacturer and model."""
     if not force:
         fpath = _filter_no_tag_file(fpath, ['Make', 'Model'])
+    if len(fpath) == 0:
+        print(f'no files need to process')
+        return
 
     cmd = exiftool.bake(*_exiftool_tag_option({'Make': make, 'Model': model}))
     cmd(*fpath)
