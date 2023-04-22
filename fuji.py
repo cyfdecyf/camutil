@@ -10,13 +10,6 @@ import sh
 
 SRC_DIR = path.abspath(path.dirname(__file__))
 
-# Download LUT file from
-# https://www.fujifilm.com/support/digital_cameras/software/lut/
-LUT_FPATH = {
-    'wdr': path.join(SRC_DIR, 'lut/x-t30-wdr.cube'),
-    'eterna': path.join(SRC_DIR, 'lut/x-t30-eterna.cube'),
-}
-
 VIDEO_OPTIONS = {
     # FFmpeg docs says CRF "subjectively sane range is 17-28", thus we use 17.
     # https://trac.ffmpeg.org/wiki/Encode/H.264#a1.ChooseaCRFvalue
@@ -107,10 +100,10 @@ def probe(input_fname):
 def convert(input_fname, output_fname,
             duration=None,
             audio_enc='aac', vbr=0, bit_rate='256k',
-            video_enc='libx265', color_space='bt709', lut=None,
+            video_enc='libx265', color_space='bt709', lut: str = None,
             threads=None):
     """
-    lut: LUT to apply: wdr, eterna
+    lut: path to LUT file
     audio_enc: audio encoder: libfdk_aac, aac
     vbr: use Variable Bit Rate (VBR) mode to encode audio if not None, valid
         interge range: [1, 5]. Note only libfdk_aac uses this option
@@ -192,7 +185,7 @@ def convert(input_fname, output_fname,
         ffmpeg = ffmpeg.bake('-tag:v', 'hvc1')
     if lut:
         ffmpeg = ffmpeg.bake(
-            '-vf', 'lut3d={}'.format(LUT_FPATH[lut]))
+            '-vf', 'lut3d={}'.format(lut))
 
     frame_rate = FRAMERATE_MAPPING[metadata['video']['avg_frame_rate']]
     # Set keyint is 2x framerate, min-keyint to framerate, as recommended
