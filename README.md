@@ -47,7 +47,7 @@ My current workflow for processing video files works like this:
 
 # Transcoding
 
-[fuji.py](./fuji.py) provides command to convert H.264 encoded video to H.265 format using [ffmpeg](https://ffmpeg.org/).
+[fuji.py](./ffmpeg.py) provides command to convert H.264 encoded video to H.265 format using [ffmpeg](https://ffmpeg.org/).
 If you put video file in directory named `F-log`, then the script will apply lut when converting.
 
 For ordinary users, I think there's few reason to use F-log. Film simulation with high dynamic range usually gives
