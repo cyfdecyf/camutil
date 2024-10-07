@@ -20,8 +20,12 @@ EXIF_DATE_TAGS = ['CreateDate', 'DateTimeOriginal', 'ModifyDate', 'DateCreated']
 #EXIF_DATE_TAGS = ['CreateDate', 'DateTimeOriginal', 'ModifyDate', 'DateCreated', 'IPTC:TimeCreated', 'IPTC:DigitalCreationTime']
 EXIF_VIDEO_DATE_TAGS = EXIF_DATE_TAGS + [
     "MediaCreateDate", "MediaModifyDate", "TrackCreateDate", "TrackModifyDate"]
-GPS_TAGS = ["GPSCoordinates", "GPSAltitude", "GPSAltitudeRef",
-         "GPSLatitude", "GPSLongitude", "GPSPosition", "GPSCoordinates"]
+GPS_TAGS = [
+        "GPSAltitude", "GPSAltitudeRef",
+        "GPSLatitude", "GPSLatitudeRef",
+        "GPSLongitude", "GPSLongitudeRef",
+        "GPSPosition", "GPSCoordinates",
+]
 
 # Sony uses DeviceManufacturer and DeviceModelName instead of Make and Model.
 # But exiftool doesn't support writing these tags.
