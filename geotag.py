@@ -57,6 +57,10 @@ def guess_camera_maker(fname: str):
         print('guessed Fujifilm camera file')
         return 'Fujifilm'
 
+    maker = read_exif_tag(fname, ['Make']).get('Make', None)
+    if maker:
+        return maker
+
     return None
 
 
@@ -86,7 +90,7 @@ LOCAL_TZ_SHIFT_HOUR = int(datetime.datetime.utcnow().astimezone().utcoffset().to
 def _guess_video_file_time_zone(fname: str):
     maker = guess_camera_maker(fname)
     # Fujifilm camera's video uses local time zone.
-    if maker == 'Fujifilm':
+    if maker in ('Fujifilm',):
         return LOCAL_TZ_SHIFT_HOUR
     else:
         return 0
@@ -164,6 +168,9 @@ def read_exif_tag(fname: str, tags: List[str]) -> Dict[str, str]:
     for l in out.getvalue().splitlines():
         k, v = l.split(': ', 1)
         r[k] = v
+
+    # print(f'{fname} has gps tags {r}')
+
     return r
 
 
@@ -216,21 +223,21 @@ def copy_gps(src, *dst, time_shift: Optional[Union[int, str]] = 0):
     elif isinstance(time_shift, str):
         time_shift = int(time_shift)
 
-    gps_tag_values = read_exif_tag(src, GPS_TAGS)
+    tags = read_exif_tag(src, GPS_TAGS)
 
-    if "GPSCoordinates" not in gps_tag_values and \
-            ("GPSPosition" in gps_tag_values and "GPSAltitude" in gps_tag_values):
+    if "GPSCoordinates" not in tags and \
+            ("GPSPosition" in tags and "GPSAltitude" in tags):
         # iPhone's jpg file has no GPSCoordinates, so we only add that tag for video file.
-        gps_tag_values["GPSCoordinates"] = \
-            f'{gps_tag_values["GPSPosition"]}, {gps_tag_values["GPSAltitude"]}'
+        tags["GPSCoordinates"] = f'{tags["GPSPosition"]}, {tags["GPSAltitude"]}'
+        print(f'{src} has no GPSCoordinates, add it')
 
-    # GPSPosition is a composite tag (combined from other tags) thus not
-    # writable.
-    cmd = exiftool.bake(*_exiftool_tag_option(gps_tag_values, exclude_keys=["GPSPosition"]))
+    # GPSPosition is a composite tag (combined from other tags) thus not writable.
+    cmd = exiftool.bake(*_exiftool_tag_option(tags, exclude_keys=["GPSPosition"]))
     if time_shift != 0:
         time_shift_option = _exiftool_time_shift_option(time_shift, EXIF_VIDEO_DATE_TAGS)
         cmd = cmd.bake(*time_shift_option)
     print(f"add GPS tag for video file {dst}")
+    # print(f'cmd: {cmd}')
     cmd(*dst)
 
 
